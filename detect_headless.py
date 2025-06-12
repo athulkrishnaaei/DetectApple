@@ -1,4 +1,6 @@
 import os, sys, time, argparse
+import cv2
+import numpy as np
 from ultralytics import YOLO
 
 # … parse args as before …
@@ -22,7 +24,7 @@ record      = args.record
 if not os.path.exists(model_path):
     print(f'ERROR: Model not found at {model_path}')
     sys.exit(1)
-    
+
 # install and load model
 model = YOLO(args.model, task='detect')
 
