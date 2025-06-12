@@ -1,53 +1,64 @@
 import os, sys, time, argparse
 import cv2
-import numpy as np
 from ultralytics import YOLO
 
-# … parse args as before …
+# === 1) Parse CLI args ===
 parser = argparse.ArgumentParser()
-parser.add_argument('--model',   help='Path to YOLO model file (e.g. "runs/detect/train/weights/best.pt")',
-                    required=True)
-parser.add_argument('--source',  help='Image source: file, folder, video file, USB camera ("usb0"), or IP stream URL',
-                    required=True)
-parser.add_argument('--thresh',  help='Min confidence threshold (default: 0.5)', default=0.5, type=float)
-parser.add_argument('--resolution', help='Display resolution WxH (e.g. "640x480")', default=None)
-parser.add_argument('--record',  help='Record output to "demo1.avi" (requires --resolution)', action='store_true')
+parser.add_argument('--model',      required=True,
+                    help='Path to YOLO model file (.tflite, .pt, etc.)')
+parser.add_argument('--source',     required=True,
+                    help='Video source: file path or IP stream URL')
+parser.add_argument('--thresh',     type=float, default=0.5,
+                    help='Min confidence threshold')
+parser.add_argument('--resolution', default=None,
+                    help='WxH to resize frames (e.g. "640x480")')
 args = parser.parse_args()
 
-model_path  = args.model
-img_source  = args.source
-min_thresh  = args.thresh
-user_res    = args.resolution
-record      = args.record
-
-# === 2) Validate model path ===
-if not os.path.exists(model_path):
-    print(f'ERROR: Model not found at {model_path}')
+# === 2) Validate and load model ===
+if not os.path.exists(args.model):
+    print(f'ERROR: Model not found at {args.model}')
     sys.exit(1)
+model = YOLO(args.model, task='detect')  # loads the TFLite or PyTorch model
 
-# install and load model
-model = YOLO(args.model, task='detect')
-
-# open stream
+# === 3) Open stream ===
 cap = cv2.VideoCapture(args.source)
 if args.resolution:
-    w,h = map(int, args.resolution.split('x'))
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+    w, h = map(int, args.resolution.split('x'))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  w)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
 
-print("Starting headless detection…")
+print("Starting headless detection… (CTRL-C to stop)")
+  
+# === 4) Inference loop with label output ===
 while True:
     ret, frame = cap.read()
     if not ret:
         print("Stream ended.")
         break
 
+    # run model
     results = model(frame, verbose=False)
-    boxes = results[0].boxes
-    count = sum(1 for b in boxes if float(b.conf) >= args.thresh)
+    boxes   = results[0].boxes  # list of Box objects
+    ts      = time.strftime('%Y-%m-%d %H:%M:%S')
 
-    # print timestamped count
-    ts = time.strftime('%Y-%m-%d %H:%M:%S')
-    print(f"{ts}  →  Apples detected: {count}")
+    detections = []
+    for box in boxes:
+        conf = float(box.conf)
+        if conf < args.thresh:
+            continue
+        cls_id = int(box.cls[0])  # class index
+        label  = model.names[cls_id]  # e.g. "normal_apple" or "rotten_apple"
+        detections.append(f"{label} ({conf:.2f})")
+
+    # print each detection on its own line
+    if detections:
+        print(f"{ts}  →  Detected:")
+        for det in detections:
+            print(f"    • {det}")
+    else:
+        print(f"{ts}  →  No detections above {args.thresh:.2f}")
+
+    # summary count
+    print(f"    →  Total apples this frame: {len(detections)}\n")
 
 cap.release()
